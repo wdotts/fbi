@@ -43,3 +43,12 @@ $ python2 fbi.py
    ![](https://image.ibb.co/iniWV9/electrum_3_2_2_2018_08_30_21_49_44.png)
 
 Bitcoin: 1A3a1p22EHXWq7muYZc9rGTmRGaithMnjR
+
+---
+
+## Amazon New CD Release Tracker
+
+This repository also contains an unrelated app: [`amazon_cd_tracker/`](amazon_cd_tracker/),
+which connects to the Amazon Creators API to list new CD releases sorted by
+release date, via a CLI and a small local web UI. See its own
+[README](amazon_cd_tracker/README.md) for setup.

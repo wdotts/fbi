@@ -102,3 +102,6 @@ venv.bak/
 
 # mypy
 .mypy_cache/
+
+# Amazon CD tracker local data (wishlist, etc.)
+amazon_cd_tracker/data/
