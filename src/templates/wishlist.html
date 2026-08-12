@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>My Wishlist</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+    .topbar { display: flex; justify-content: space-between; align-items: baseline; }
+    table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
+    th, td { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid #eee; vertical-align: top; }
+    th { background: #f7f7f7; }
+    img { width: 48px; height: 48px; object-fit: cover; border-radius: 4px; }
+    a { color: #067d62; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .btn { padding: 0.4rem 0.9rem; border: 0; border-radius: 4px; background: #232f3e; color: #fff; cursor: pointer; text-decoration: none; font-size: 0.85rem; display: inline-block; }
+    .btn.secondary { background: #f0c14b; color: #111; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <h1>My Wishlist</h1>
+    <a href="{{ url_for('index') }}">&larr; Back to search</a>
+  </div>
+  <p>Saved locally in this app. Amazon doesn't offer a public way for a third-party app
+     to write to your real Amazon wish list, so this list lives here; use
+     "Add to Cart" to actually put an item in your real Amazon cart.</p>
+
+  {% if cart_url %}
+    <p><a class="btn" href="{{ cart_url }}" target="_blank" rel="noopener">Add all to Amazon Cart</a></p>
+  {% endif %}
+
+  {% if items %}
+  <table>
+    <thead>
+      <tr><th></th><th>Release date</th><th>Artist</th><th>Title</th><th>Price</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for item in items %}
+      <tr>
+        <td>{% if item.image_url %}<img src="{{ item.image_url }}" alt="">{% endif %}</td>
+        <td>{{ item.release_date or "Unknown" }}</td>
+        <td>{{ item.artist or "Unknown" }}</td>
+        <td>{% if item.url %}<a href="{{ item.url }}" target="_blank" rel="noopener">{{ item.title }}</a>{% else %}{{ item.title }}{% endif %}</td>
+        <td>{{ item.price_display or "N/A" }}</td>
+        <td>
+          <form method="post" action="{{ url_for('wishlist_remove') }}">
+            <input type="hidden" name="asin" value="{{ item.asin }}">
+            <input type="hidden" name="next" value="{{ url_for('wishlist_view') }}">
+            <button type="submit" class="btn secondary">Remove</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <p>Your wishlist is empty. Add items from the search page.</p>
+  {% endif %}
+</body>
+</html>

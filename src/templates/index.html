@@ -6,45 +6,78 @@
   <style>
     body { font-family: system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
     h1 { margin-bottom: 0.25rem; }
-    form { margin-bottom: 1.5rem; display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+    .topbar { display: flex; justify-content: space-between; align-items: baseline; }
+    form.search { margin-bottom: 1.5rem; display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center; }
     input { padding: 0.4rem; border: 1px solid #ccc; border-radius: 4px; }
-    button { padding: 0.4rem 0.9rem; border: 0; border-radius: 4px; background: #232f3e; color: #fff; cursor: pointer; }
+    button, .btn { padding: 0.4rem 0.9rem; border: 0; border-radius: 4px; background: #232f3e; color: #fff; cursor: pointer; text-decoration: none; font-size: 0.85rem; display: inline-block; }
+    .btn.secondary { background: #f0c14b; color: #111; }
     table { border-collapse: collapse; width: 100%; }
     th, td { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid #eee; vertical-align: top; }
     th { background: #f7f7f7; }
     img { width: 48px; height: 48px; object-fit: cover; border-radius: 4px; }
     .error { background: #fdecea; color: #7a1f1f; padding: 0.75rem 1rem; border-radius: 6px; margin-bottom: 1rem; }
+    .note { background: #fff8e1; color: #6b5300; padding: 0.75rem 1rem; border-radius: 6px; margin-bottom: 1rem; }
     a { color: #067d62; text-decoration: none; }
     a:hover { text-decoration: underline; }
+    .actions { display: flex; gap: 0.4rem; align-items: center; white-space: nowrap; }
+    .in-list { color: #067d62; font-size: 0.85rem; }
   </style>
 </head>
 <body>
-  <h1>New CD Releases</h1>
+  <div class="topbar">
+    <h1>New CD Releases</h1>
+    <a href="{{ url_for('wishlist_view') }}">My Wishlist &rarr;</a>
+  </div>
   <p>Sorted by release date, newest first. Data from Amazon via the Amazon Creators API.</p>
 
-  {% if error %}
-    <div class="error">{{ error }}</div>
-  {% endif %}
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+  {% if note %}<div class="note">{{ note }}</div>{% endif %}
 
-  <form method="get">
+  <form class="search" method="get">
     <input type="text" name="keywords" placeholder="Artist or keyword" value="{{ keywords }}">
-    <input type="number" name="days" min="1" value="{{ days }}" title="Look back this many days">
+    <label>Released on exactly
+      <input type="date" name="date" value="{{ date }}">
+    </label>
+    <label>or in the last
+      <input type="number" name="days" min="1" value="{{ days }}" style="width:4rem;">
+      days
+    </label>
     <button type="submit">Search</button>
   </form>
 
-  {% if releases %}
+  {% if rows %}
   <table>
     <thead>
-      <tr><th></th><th>Release date</th><th>Artist</th><th>Title</th><th>Price</th></tr>
+      <tr><th></th><th>Release date</th><th>Artist</th><th>Title</th><th>Price</th><th>Actions</th></tr>
     </thead>
     <tbody>
-      {% for r in releases %}
+      {% for row in rows %}
+      {% set r = row.release %}
       <tr>
         <td>{% if r.image_url %}<img src="{{ r.image_url }}" alt="">{% endif %}</td>
         <td>{{ r.release_date_display() }}</td>
         <td>{{ r.artist or "Unknown" }}</td>
         <td>{% if r.url %}<a href="{{ r.url }}" target="_blank" rel="noopener">{{ r.title }}</a>{% else %}{{ r.title }}{% endif %}</td>
         <td>{{ r.price_display or "N/A" }}</td>
+        <td class="actions">
+          <a class="btn" href="{{ row.cart_url }}" target="_blank" rel="noopener">Add to Cart</a>
+          {% if row.in_wishlist %}
+            <span class="in-list">&#9733; In wishlist</span>
+          {% else %}
+            <form method="post" action="{{ url_for('wishlist_add') }}">
+              <input type="hidden" name="asin" value="{{ r.asin }}">
+              <input type="hidden" name="title" value="{{ r.title }}">
+              <input type="hidden" name="artist" value="{{ r.artist or '' }}">
+              <input type="hidden" name="release_date" value="{{ r.release_date.isoformat() if r.release_date else '' }}">
+              <input type="hidden" name="price_display" value="{{ r.price_display or '' }}">
+              <input type="hidden" name="currency" value="{{ r.currency or '' }}">
+              <input type="hidden" name="image_url" value="{{ r.image_url or '' }}">
+              <input type="hidden" name="url" value="{{ r.url or '' }}">
+              <input type="hidden" name="next" value="{{ request.full_path }}">
+              <button type="submit" class="btn secondary">&#9734; Wishlist</button>
+            </form>
+          {% endif %}
+        </td>
       </tr>
       {% endfor %}
     </tbody>
