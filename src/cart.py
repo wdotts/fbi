@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Optional
 from urllib.parse import urlencode
 
 # Amazon's documented Associates "Add to Cart" form: a plain GET link to
@@ -53,3 +54,31 @@ def cart_add_url_multi(asins: list[str], country: str, partner_tag: str) -> str:
         params[f"ASIN.{i}"] = asin
         params[f"Quantity.{i}"] = "1"
     return f"https://www.{domain}/gp/aws/cart/add.html?{urlencode(params)}"
+
+
+def amazon_search_url(query: str, country: str = "US", partner_tag: Optional[str] = None) -> str:
+    """A plain Amazon search results link - not automated access, just the
+    same URL a person gets by typing into Amazon's search box. Used when
+    we don't have an ASIN to build a real add-to-cart link with (e.g. a
+    MusicBrainz/Discogs result with no known Amazon match)."""
+    domain = marketplace_domain(country)
+    params = {"k": query}
+    if partner_tag:
+        params["tag"] = partner_tag
+    return f"https://www.{domain}/s?{urlencode(params)}"
+
+
+def cart_url_for(
+    asin: Optional[str],
+    artist: Optional[str],
+    title: str,
+    country: str,
+    partner_tag: Optional[str],
+) -> str:
+    """The best available Amazon link for an item: a real add-to-cart link
+    when we have both an ASIN and a partner tag, otherwise a plain search
+    link so there's still something useful to click."""
+    if asin and partner_tag:
+        return cart_add_url(asin, country, partner_tag)
+    query = f"{artist} {title}".strip() if artist else title
+    return amazon_search_url(query, country, partner_tag)

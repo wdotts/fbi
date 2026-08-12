@@ -14,6 +14,8 @@
     a:hover { text-decoration: underline; }
     .btn { padding: 0.4rem 0.9rem; border: 0; border-radius: 4px; background: #232f3e; color: #fff; cursor: pointer; text-decoration: none; font-size: 0.85rem; display: inline-block; }
     .btn.secondary { background: #f0c14b; color: #111; }
+    .btn.muted { background: #eee; color: #333; }
+    .badge { font-size: 0.7rem; background: #f0f0f0; border-radius: 3px; padding: 0.1rem 0.4rem; color: #555; }
   </style>
 </head>
 <body>
@@ -23,28 +25,34 @@
   </div>
   <p>Saved locally in this app. Amazon doesn't offer a public way for a third-party app
      to write to your real Amazon wish list, so this list lives here; use
-     "Add to Cart" to actually put an item in your real Amazon cart.</p>
+     "Add to Cart" (shown when we know the item's Amazon ASIN) to actually
+     put it in your real Amazon cart.</p>
 
-  {% if cart_url %}
-    <p><a class="btn" href="{{ cart_url }}" target="_blank" rel="noopener">Add all to Amazon Cart</a></p>
+  {% if bulk_cart_url %}
+    <p><a class="btn" href="{{ bulk_cart_url }}" target="_blank" rel="noopener">Add all {{ asin_count }} ASIN-linked item(s) to Amazon Cart</a></p>
   {% endif %}
 
-  {% if items %}
+  {% if rows %}
   <table>
     <thead>
-      <tr><th></th><th>Release date</th><th>Artist</th><th>Title</th><th>Price</th><th></th></tr>
+      <tr><th></th><th>Release date</th><th>Source</th><th>Artist</th><th>Title</th><th>Price</th><th></th></tr>
     </thead>
     <tbody>
-      {% for item in items %}
+      {% for row in rows %}
+      {% set item = row.item %}
       <tr>
         <td>{% if item.image_url %}<img src="{{ item.image_url }}" alt="">{% endif %}</td>
-        <td>{{ item.release_date or "Unknown" }}</td>
+        <td>{{ item.release_date or item.release_date_text or "Unknown" }}</td>
+        <td><span class="badge">{{ item.source }}</span></td>
         <td>{{ item.artist or "Unknown" }}</td>
         <td>{% if item.url %}<a href="{{ item.url }}" target="_blank" rel="noopener">{{ item.title }}</a>{% else %}{{ item.title }}{% endif %}</td>
         <td>{{ item.price_display or "N/A" }}</td>
         <td>
-          <form method="post" action="{{ url_for('wishlist_remove') }}">
-            <input type="hidden" name="asin" value="{{ item.asin }}">
+          <a class="btn {{ '' if row.is_real_cart else 'muted' }}" href="{{ row.cart_url }}" target="_blank" rel="noopener">
+            {{ "Add to Cart" if row.is_real_cart else "Find on Amazon" }}
+          </a>
+          <form method="post" action="{{ url_for('wishlist_remove') }}" style="display:inline;">
+            <input type="hidden" name="key" value="{{ item.source }}:{{ item.source_id }}">
             <input type="hidden" name="next" value="{{ url_for('wishlist_view') }}">
             <button type="submit" class="btn secondary">Remove</button>
           </form>
