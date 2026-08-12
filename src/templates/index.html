@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>New CD Releases</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+    h1 { margin-bottom: 0.25rem; }
+    form { margin-bottom: 1.5rem; display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+    input { padding: 0.4rem; border: 1px solid #ccc; border-radius: 4px; }
+    button { padding: 0.4rem 0.9rem; border: 0; border-radius: 4px; background: #232f3e; color: #fff; cursor: pointer; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid #eee; vertical-align: top; }
+    th { background: #f7f7f7; }
+    img { width: 48px; height: 48px; object-fit: cover; border-radius: 4px; }
+    .error { background: #fdecea; color: #7a1f1f; padding: 0.75rem 1rem; border-radius: 6px; margin-bottom: 1rem; }
+    a { color: #067d62; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <h1>New CD Releases</h1>
+  <p>Sorted by release date, newest first. Data from Amazon via the Amazon Creators API.</p>
+
+  {% if error %}
+    <div class="error">{{ error }}</div>
+  {% endif %}
+
+  <form method="get">
+    <input type="text" name="keywords" placeholder="Artist or keyword" value="{{ keywords }}">
+    <input type="number" name="days" min="1" value="{{ days }}" title="Look back this many days">
+    <button type="submit">Search</button>
+  </form>
+
+  {% if releases %}
+  <table>
+    <thead>
+      <tr><th></th><th>Release date</th><th>Artist</th><th>Title</th><th>Price</th></tr>
+    </thead>
+    <tbody>
+      {% for r in releases %}
+      <tr>
+        <td>{% if r.image_url %}<img src="{{ r.image_url }}" alt="">{% endif %}</td>
+        <td>{{ r.release_date_display() }}</td>
+        <td>{{ r.artist or "Unknown" }}</td>
+        <td>{% if r.url %}<a href="{{ r.url }}" target="_blank" rel="noopener">{{ r.title }}</a>{% else %}{{ r.title }}{% endif %}</td>
+        <td>{{ r.price_display or "N/A" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% elif not error %}
+    <p>No releases found for these filters.</p>
+  {% endif %}
+</body>
+</html>
