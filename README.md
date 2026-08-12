@@ -130,6 +130,42 @@ and a **Wishlist** button (saved locally); saved items live at
 `/wishlist`, including a link to add every ASIN-linked one to your Amazon
 cart at once.
 
+### Using it from your phone (same Wi-Fi)
+
+There's no App Store app - this is a browser UI, so "on your phone" means
+your phone's browser reaching the server running on your computer. Both
+need to be on the **same Wi-Fi network**; this doesn't work over cellular
+or a different network.
+
+```bash
+python -m src.webapp
+```
+
+It prints both URLs on startup:
+
+```
+ * Running on this machine:  http://127.0.0.1:5000/
+ * On your phone (same Wi-Fi): http://192.168.1.23:5000/
+```
+
+Open the second URL in Safari on your phone. Leave the terminal running -
+closing it (or your computer sleeping) stops the server. Your first time,
+macOS/Windows will likely prompt to allow incoming network connections for
+Python; allow it, or the phone won't be able to connect.
+
+This binds the server to your network interface, not just localhost
+(Flask's default), and turns its debug mode off by default for that
+reason - Flask's interactive debugger allows arbitrary code execution to
+anyone who can reach it, which is a real risk once it's not localhost-only.
+If you want the debugger for local development, set `FLASK_DEBUG=true` -
+only do this when you're confident no one untrusted is on your network.
+The port is configurable via `PORT` if 5000 is taken by something else.
+
+To make it reachable from outside your Wi-Fi (e.g. cellular, a different
+location) needs actual hosting - a persistent server, HTTPS, and durable
+storage for `data/wishlist.json` instead of a local file that a redeploy
+could wipe. That isn't set up here; ask if you want it.
+
 ## Why not just scrape Amazon?
 
 Amazon's Conditions of Use explicitly prohibit automated access
