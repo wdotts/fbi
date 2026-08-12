@@ -4,11 +4,9 @@ from datetime import date, datetime, timedelta
 
 from flask import Flask, jsonify, redirect, render_template, request, url_for
 
-from . import storage
-from .amazon_client import MAX_PAGES, search_new_releases
-from .cart import cart_add_url, cart_add_url_multi
-from .config import ConfigError, load_amazon_config
-from .releases import filter_and_sort_releases
+from . import aggregate, storage
+from .cart import cart_add_url_multi, cart_url_for
+from .config import load_config
 
 app = Flask(__name__)
 
@@ -19,84 +17,75 @@ def _parse_date(value):
     return datetime.strptime(value, "%Y-%m-%d").date()
 
 
-def _search(args):
-    config = load_amazon_config()
+def _resolve_sources(args) -> list:
+    selected = [s for s in args.getlist("sources") if s in aggregate.ALL_SOURCES]
+    return selected or list(aggregate.DEFAULT_SOURCES)
+
+
+def _run_search(args):
+    config = load_config()
+    sources = _resolve_sources(args)
     exact_date = _parse_date(args.get("date"))
     keywords = args.get("keywords") or None
 
     if exact_date:
         since = until = exact_date
-        pages = MAX_PAGES
     else:
         days = int(args.get("days") or 60)
         since = _parse_date(args.get("since")) or (date.today() - timedelta(days=days))
         until = _parse_date(args.get("until"))
-        pages = int(args.get("pages") or 3)
 
-    outcome = search_new_releases(config, keywords=keywords, pages=pages)
-    releases = filter_and_sort_releases(outcome.releases, since=since, until=until)
-    return releases, outcome, config, exact_date
+    result = aggregate.search(config, sources=sources, since=since, until=until, keywords=keywords)
+    return result, config, sources, exact_date
 
 
 def _rows_with_extras(releases, config):
-    in_wishlist = storage.wishlist_asins()
-    return [
-        {
-            "release": r,
-            "cart_url": cart_add_url(r.asin, config.country, config.partner_tag),
-            "in_wishlist": r.asin in in_wishlist,
-        }
-        for r in releases
-    ]
+    in_wishlist = storage.wishlist_keys()
+    rows = []
+    for r in releases:
+        rows.append(
+            {
+                "release": r,
+                "cart_url": cart_url_for(r.asin, r.artist, r.title, config.amazon_country, config.amazon_partner_tag),
+                "is_real_cart": bool(r.asin and config.amazon_partner_tag),
+                "in_wishlist": r.key in in_wishlist,
+            }
+        )
+    return rows
 
 
 @app.route("/")
 def index():
-    error = None
-    note = None
-    rows = []
-    try:
-        releases, outcome, config, exact_date = _search(request.args)
-        rows = _rows_with_extras(releases, config)
-        if exact_date and outcome.scanned_count >= 100:
-            note = (
-                "Amazon's search API has no direct release-date filter and caps a "
-                "single search at 100 catalog listings ordered by recency, so "
-                "results for dates more than a couple of months old may be "
-                "incomplete. Try adding keywords (an artist or label) to dig "
-                "further into the catalog for this date."
-            )
-    except ConfigError as exc:
-        error = str(exc)
+    result, config, sources, exact_date = _run_search(request.args)
+    rows = _rows_with_extras(result.releases, config)
     return render_template(
         "index.html",
         rows=rows,
-        error=error,
-        note=note,
+        notes=result.notes,
         keywords=request.args.get("keywords", ""),
         days=request.args.get("days", "60"),
         date=request.args.get("date", ""),
+        all_sources=aggregate.ALL_SOURCES,
+        selected_sources=sources,
+        amazon_configured=config.amazon is not None,
     )
 
 
 @app.route("/api/releases")
 def api_releases():
-    try:
-        releases, outcome, config, exact_date = _search(request.args)
-    except ConfigError as exc:
-        return jsonify({"error": str(exc)}), 400
-    in_wishlist = storage.wishlist_asins()
+    result, config, sources, exact_date = _run_search(request.args)
+    in_wishlist = storage.wishlist_keys()
     return jsonify(
         {
-            "scanned_count": outcome.scanned_count,
-            "pages_fetched": outcome.pages_fetched,
+            "notes": result.notes,
+            "sources": sources,
             "results": [
                 {
                     **r.to_dict(),
-                    "cart_url": cart_add_url(r.asin, config.country, config.partner_tag),
-                    "in_wishlist": r.asin in in_wishlist,
+                    "cart_url": cart_url_for(r.asin, r.artist, r.title, config.amazon_country, config.amazon_partner_tag),
+                    "in_wishlist": r.key in in_wishlist,
                 }
-                for r in releases
+                for r in result.releases
             ],
         }
     )
@@ -104,42 +93,55 @@ def api_releases():
 
 @app.route("/wishlist")
 def wishlist_view():
+    config = load_config()
     items = storage.load_wishlist()
-    cart_url = None
-    try:
-        config = load_amazon_config()
-        asins = [i["asin"] for i in items if i.get("asin")]
-        if asins:
-            cart_url = cart_add_url_multi(asins, config.country, config.partner_tag)
-    except ConfigError:
-        pass
-    return render_template("wishlist.html", items=items, cart_url=cart_url)
+    rows = []
+    for item in items:
+        asin = item.get("asin")
+        rows.append(
+            {
+                "item": item,
+                "cart_url": cart_url_for(
+                    asin, item.get("artist"), item.get("title") or "", config.amazon_country, config.amazon_partner_tag
+                ),
+                "is_real_cart": bool(asin and config.amazon_partner_tag),
+            }
+        )
+    asins = [i["asin"] for i in items if i.get("asin")]
+    bulk_cart_url = None
+    if asins and config.amazon_partner_tag:
+        bulk_cart_url = cart_add_url_multi(asins, config.amazon_country, config.amazon_partner_tag)
+    return render_template("wishlist.html", rows=rows, bulk_cart_url=bulk_cart_url, asin_count=len(asins))
 
 
 @app.route("/wishlist/add", methods=["POST"])
 def wishlist_add():
     item = {
-        "asin": request.form.get("asin"),
+        "source": request.form.get("source"),
+        "source_id": request.form.get("source_id"),
+        "asin": request.form.get("asin") or None,
         "title": request.form.get("title"),
         "artist": request.form.get("artist") or None,
         "release_date": request.form.get("release_date") or None,
+        "release_date_text": request.form.get("release_date_text") or None,
+        "format": request.form.get("format") or None,
         "price_display": request.form.get("price_display") or None,
         "currency": request.form.get("currency") or None,
         "image_url": request.form.get("image_url") or None,
         "url": request.form.get("url") or None,
     }
-    if item["asin"]:
+    if item["source"] and item["source_id"]:
         storage.add_to_wishlist(item)
     return redirect(request.form.get("next") or url_for("index"))
 
 
 @app.route("/wishlist/remove", methods=["POST"])
 def wishlist_remove():
-    asin = request.form.get("asin")
-    if asin:
-        storage.remove_from_wishlist(asin)
+    key = request.form.get("key")
+    if key:
+        storage.remove_from_wishlist(key)
     return redirect(request.form.get("next") or url_for("wishlist_view"))
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=True, threaded=True)

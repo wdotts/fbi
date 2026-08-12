@@ -9,7 +9,7 @@ from amazon_creatorsapi.errors import ItemsNotFoundError, TooManyRequestsError
 from amazon_creatorsapi.models import SearchItemsResource, SortBy
 
 from .config import AmazonConfig
-from .releases import Release, release_from_item
+from .releases import Release, parse_release_date
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +43,59 @@ def build_client(config: AmazonConfig) -> AmazonCreatorsApi:
     )
 
 
+def _attr(obj, *names):
+    for name in names:
+        obj = getattr(obj, name, None)
+        if obj is None:
+            return None
+    return obj
+
+
+def release_from_item(item) -> Release:
+    """Convert an Amazon Creators API `Item` (from search_items/get_items)
+    into a plain Release. Every lookup is defensive since Amazon only
+    returns the resources it actually has data for."""
+    item_info = getattr(item, "item_info", None)
+    title = _attr(item_info, "title", "display_value") or "Unknown title"
+
+    by_line = getattr(item_info, "by_line_info", None)
+    contributors = getattr(by_line, "contributors", None) or []
+    artist_names = [c.name for c in contributors if getattr(c, "name", None)]
+    if artist_names:
+        artist = ", ".join(dict.fromkeys(artist_names))
+    else:
+        artist = _attr(by_line, "brand", "display_value")
+
+    raw_release_date = _attr(item_info, "product_info", "release_date", "display_value")
+    release_date = parse_release_date(raw_release_date)
+
+    price_display = None
+    currency = None
+    offers = getattr(item, "offers_v2", None)
+    listings = getattr(offers, "listings", None) or []
+    if listings:
+        money = _attr(listings[0], "price", "money")
+        price_display = getattr(money, "display_amount", None)
+        currency = getattr(money, "currency", None)
+
+    image_url = _attr(item, "images", "primary", "medium", "url")
+    asin = getattr(item, "asin", "") or ""
+
+    return Release(
+        source="amazon",
+        source_id=asin,
+        title=title,
+        artist=artist,
+        release_date=release_date,
+        release_date_text=raw_release_date,
+        price_display=price_display,
+        currency=currency,
+        image_url=image_url,
+        url=getattr(item, "detail_page_url", None),
+        asin=asin or None,
+    )
+
+
 def search_new_releases(
     config: AmazonConfig,
     keywords: Optional[str] = None,
@@ -68,7 +121,7 @@ def search_new_releases(
     api = client or build_client(config)
     pages = max(1, min(pages, MAX_PAGES))
 
-    releases_by_asin: dict[str, Release] = {}
+    releases_by_id: dict[str, Release] = {}
     scanned_count = 0
     pages_fetched = 0
     for page in range(1, pages + 1):
@@ -97,11 +150,11 @@ def search_new_releases(
         scanned_count += len(items)
         for item in items:
             release = release_from_item(item)
-            if release.asin:
-                releases_by_asin[release.asin] = release
+            if release.source_id:
+                releases_by_id[release.source_id] = release
 
     return SearchOutcome(
-        releases=list(releases_by_asin.values()),
+        releases=list(releases_by_id.values()),
         scanned_count=scanned_count,
         pages_fetched=pages_fetched,
     )

@@ -4,98 +4,66 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Iterable, Optional
 
-_DATE_FORMATS = ("%Y-%m-%d", "%Y-%m", "%Y")
-
 
 def parse_release_date(raw: Optional[str]) -> Optional[date]:
-    """Parse Amazon's ReleaseDate string, which may be a full date, a
-    year-month, or just a year, depending on how complete the catalog
-    listing is."""
+    """Parse a full YYYY-MM-DD release date.
+
+    Returns None for missing, unparseable, or partial-precision values (a
+    bare year like "2026" or a year-month like "2026-08"), since those
+    can't be confirmed to fall on - or be excluded from - a specific day.
+    Callers that still want to show a partial date should use
+    Release.release_date_text / release_date_display() instead.
+    """
     if not raw:
         return None
-    raw = raw.strip()
-    for fmt in _DATE_FORMATS:
-        try:
-            return datetime.strptime(raw, fmt).date()
-        except ValueError:
-            continue
-    return None
+    try:
+        return datetime.strptime(raw.strip(), "%Y-%m-%d").date()
+    except ValueError:
+        return None
 
 
 @dataclass
 class Release:
-    asin: str
+    source: str  # "amazon" | "musicbrainz" | "discogs"
+    source_id: str  # ASIN / MusicBrainz MBID / Discogs release id
     title: str
-    artist: Optional[str]
-    release_date: Optional[date]
-    price_display: Optional[str]
-    currency: Optional[str]
-    image_url: Optional[str]
-    url: Optional[str]
+    artist: Optional[str] = None
+    release_date: Optional[date] = None  # set only when known to day precision
+    release_date_text: Optional[str] = None  # raw value, e.g. "2026", "2026-08", or an ISO date
+    format: Optional[str] = None
+    price_display: Optional[str] = None
+    currency: Optional[str] = None
+    image_url: Optional[str] = None
+    url: Optional[str] = None
+    asin: Optional[str] = None  # a real Amazon ASIN, if known, regardless of source
+
+    @property
+    def key(self) -> str:
+        """Unique identity across sources, e.g. 'amazon:B000TEST' or
+        'musicbrainz:1234-5678'. Used to dedupe within a source and to key
+        wishlist storage."""
+        return f"{self.source}:{self.source_id}"
 
     def release_date_display(self) -> str:
-        return self.release_date.isoformat() if self.release_date else "Unknown"
+        if self.release_date:
+            return self.release_date.isoformat()
+        return self.release_date_text or "Unknown"
 
     def to_dict(self) -> dict:
         return {
-            "asin": self.asin,
+            "source": self.source,
+            "source_id": self.source_id,
             "title": self.title,
             "artist": self.artist,
             "release_date": self.release_date.isoformat() if self.release_date else None,
+            "release_date_text": self.release_date_text,
+            "format": self.format,
             "price_display": self.price_display,
             "currency": self.currency,
             "image_url": self.image_url,
             "url": self.url,
+            "asin": self.asin,
         }
-
-
-def _attr(obj, *names):
-    for name in names:
-        obj = getattr(obj, name, None)
-        if obj is None:
-            return None
-    return obj
-
-
-def release_from_item(item) -> Release:
-    """Convert an Amazon Creators API `Item` (from search_items) into a
-    plain Release. Every lookup is defensive since Amazon only returns
-    the resources it actually has data for."""
-    item_info = getattr(item, "item_info", None)
-    title = _attr(item_info, "title", "display_value") or "Unknown title"
-
-    by_line = getattr(item_info, "by_line_info", None)
-    contributors = getattr(by_line, "contributors", None) or []
-    artist_names = [c.name for c in contributors if getattr(c, "name", None)]
-    if artist_names:
-        artist = ", ".join(dict.fromkeys(artist_names))
-    else:
-        artist = _attr(by_line, "brand", "display_value")
-
-    raw_release_date = _attr(item_info, "product_info", "release_date", "display_value")
-    release_date = parse_release_date(raw_release_date)
-
-    price_display = None
-    currency = None
-    offers = getattr(item, "offers_v2", None)
-    listings = getattr(offers, "listings", None) or []
-    if listings:
-        money = _attr(listings[0], "price", "money")
-        price_display = getattr(money, "display_amount", None)
-        currency = getattr(money, "currency", None)
-
-    image_url = _attr(item, "images", "primary", "medium", "url")
-
-    return Release(
-        asin=getattr(item, "asin", "") or "",
-        title=title,
-        artist=artist,
-        release_date=release_date,
-        price_display=price_display,
-        currency=currency,
-        image_url=image_url,
-        url=getattr(item, "detail_page_url", None),
-    )
 
 
 def filter_and_sort_releases(
@@ -104,9 +72,10 @@ def filter_and_sort_releases(
     until: Optional[date] = None,
     require_date: bool = False,
 ) -> list[Release]:
-    """Keep releases within [since, until] and sort newest-first. Items
-    with no known release date are dropped when require_date is set,
-    otherwise kept and sorted to the end."""
+    """Keep releases within [since, until] (by exact, day-precision release
+    date) and sort newest-first. Releases with no day-precision date are
+    dropped when require_date is set, otherwise kept and sorted to the
+    end."""
     filtered = []
     for release in releases:
         if release.release_date is None:
